@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from datetime import datetime
 
 from advanced_alchemy.exceptions import IntegrityError, NotFoundError
 from litestar import Controller, Request, Response, Router, delete, get, patch, post
@@ -12,7 +13,7 @@ from litestar.status_codes import HTTP_200_OK
 
 from .dtos import Login, LoginDTO, UserCreateDTO, UserDTO, UserFullDTO, UserUpdateDTO
 from .models import User
-from .repositories import UserRepository, password_hasher, provide_user_repository
+from .repositories import UserRepository, provide_user_repository
 from .security import oauth2_auth
 
 
@@ -28,9 +29,10 @@ class UserController(Controller):
     async def list_users(self, users_repo: UserRepository) -> list[User]:
         return users_repo.list()
 
-    @post(dto=UserCreateDTO)
+    @post(dto=UserCreateDTO, exclude_from_auth=True)
     async def create_user(self, users_repo: UserRepository, data: User) -> User:
         try:
+            # Hash the password before adding to the database
             return users_repo.add_with_password_hash(data)
         except IntegrityError:
             raise HTTPException(detail="Username and/or email already in use", status_code=400)
@@ -80,8 +82,18 @@ class AuthController(Controller):
         users_repo: UserRepository,
     ) -> Response[Any]:
         user = users_repo.get_one_or_none(username=data.username)
-        if not user or not password_hasher.verify(data.password, user.password):
+        
+        # Log para verificar intentos de autenticación
+        print(f"Attempting to verify password for username: {data.username}")
+        print(f"Provided password: {data.password}")
+        print(f"Stored password hash: {user.password if user else 'No user found'}")
+
+        if not user or not users_repo.verify_password(data.password, user.password):
             raise HTTPException(detail="Invalid username or password", status_code=401)
+
+        # Actualizar el campo de último login y confirmar en la base de datos
+        user.last_login = datetime.utcnow()
+        users_repo.session.commit()
 
         return oauth2_auth.login(
             identifier=str(user.username),
