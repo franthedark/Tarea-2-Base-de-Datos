@@ -1,5 +1,4 @@
 from typing import Annotated, Any
-
 from advanced_alchemy.exceptions import IntegrityError, NotFoundError
 from litestar import Controller, Request, Response, Router, delete, get, patch, post
 from litestar.di import Provide
@@ -10,8 +9,6 @@ from litestar.params import Body
 from litestar.security.jwt import Token
 from litestar.status_codes import HTTP_400_BAD_REQUEST, HTTP_200_OK
 from pydantic import BaseModel
-from typing import Annotated
-
 
 from .dtos import Login, LoginDTO, UserCreateDTO, UserDTO, UserFullDTO, UserUpdateDTO
 from .models import User
@@ -19,7 +16,6 @@ from .repositories import UserRepository, password_hasher, provide_user_reposito
 from .security import oauth2_auth
 
 from datetime import datetime
-from pydantic import BaseModel
 
 class ChangePasswordRequest(BaseModel):
     username: str
@@ -42,39 +38,32 @@ class UserController(Controller):
     @post(dto=UserCreateDTO, dependencies=None)
     async def create_user(self, users_repo: UserRepository, data: User) -> User:
         try:
-            data.password = password_hasher.hash(data.password)  # Hashear la contraseña antes de guardar
+            data.password = password_hasher.hash(data.password)
             return users_repo.add_with_password_hash(data)
         except IntegrityError:
             raise HTTPException(detail="Username and/or email already in use", status_code=400)
 
     @get("/me", return_dto=UserFullDTO)
     async def get_my_user(self, request: "Request[User, Token, Any]", users_repo: UserRepository) -> User:
-        # request.user does not have a session attached, so we need to fetch the user from the database
         return users_repo.get(request.user.id)
     
     @patch("/me/change-password")
-    async def change_password(self, data: Annotated[ChangePasswordRequest, Body()], users_repo: UserRepository,) -> Response[None]:
-    # Buscar el usuario en la base de datos
+    async def change_password(self, data: Annotated[ChangePasswordRequest, Body()], users_repo: UserRepository) -> Response[None]:
         user = users_repo.get_one_or_none(username=data.username)
         if not user:
             raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="Usuario no encontrado.")
 
-    # Verificar que la contraseña actual sea correcta
         if not password_hasher.verify(data.current_password, user.password):
             raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="La contraseña actual es incorrecta.")
     
-    # Verificar que la nueva contraseña no coincida con las últimas tres contraseñas
         if any(password_hasher.verify(data.new_password, old_password) for old_password in user.previous_passwords):
             raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail="La nueva contraseña no debe coincidir con las últimas tres contraseñas.")
 
-    # Actualizar la contraseña y el campo `previous_passwords`
-        user.previous_passwords = ([user.password] + user.previous_passwords)[:3]  # Guardar el hash actual en `previous_passwords`
-        user.password = password_hasher.hash(data.new_password)  # Guardar el nuevo hash en `password`
+        user.previous_passwords = ([user.password] + user.previous_passwords)[:3]
+        user.password = password_hasher.hash(data.new_password)
 
-    # Actualizar el usuario en la base de datos
         users_repo.update(user)
         return Response(content=None, status_code=HTTP_200_OK)
-
 
     @get("/{user_id:int}", return_dto=UserFullDTO)
     async def get_user(self, user_id: int, users_repo: UserRepository) -> User:

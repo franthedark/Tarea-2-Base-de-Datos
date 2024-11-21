@@ -30,3 +30,16 @@ class Login:
 
 class LoginDTO(DataclassDTO[Login]):
     pass
+
+
+@dataclass
+class ChangePassword:
+    current_password: str
+    new_password: str
+
+
+class ChangePasswordDTO(DataclassDTO[ChangePassword]):
+    """
+    DTO for handling password change requests.
+    """
+    pass
